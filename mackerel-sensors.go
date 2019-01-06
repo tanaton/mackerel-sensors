@@ -99,7 +99,7 @@ func graph() error {
 					},
 					Metric{
 						Name:  "sys2",
-						Label: "SYS_FAN1",
+						Label: "SYS_FAN2",
 					},
 				},
 			},
