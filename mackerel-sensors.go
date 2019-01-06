@@ -86,7 +86,7 @@ func graph() error {
 	out := Meta{
 		Graphs: Graphs{
 			Fan: Graph{
-				Label: "Temp",
+				Label: "Fan",
 				Unit:  "integer",
 				Metrics: []Metric{
 					Metric{
@@ -104,7 +104,7 @@ func graph() error {
 				},
 			},
 			Temp: Graph{
-				Label: "Fan",
+				Label: "Temp",
 				Unit:  "integer",
 				Metrics: []Metric{
 					Metric{
