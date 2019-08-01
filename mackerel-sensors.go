@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -127,6 +131,10 @@ func graph() error {
 						Name:  "vsoc",
 						Label: "vSOC MOS Temp",
 					},
+					Metric{
+						Name:  "air",
+						Label: "Air Temp",
+					},
 				},
 			},
 		},
@@ -162,5 +170,33 @@ func sensor() error {
 	fmt.Fprintf(os.Stdout, "sensors.temp.pciex16\t%d\t%d\n", int64(ss.Sensor.PCIEX16_Temp.Input), ut)
 	fmt.Fprintf(os.Stdout, "sensors.temp.vrm\t%d\t%d\n", int64(ss.Sensor.VRMMOS_Temp.Input), ut)
 	fmt.Fprintf(os.Stdout, "sensors.temp.vsoc\t%d\t%d\n", int64(ss.Sensor.VSOCMOS_Temp.Input), ut)
-	return nil
+	return air(ut)
+}
+
+func air(ut int64) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// rootで呼ばないとダメ？
+	var cmdbuf bytes.Buffer
+	cmd := exec.CommandContext(ctx, "/home/tanaton/src/TEMPered/utils/tempered")
+	cmd.Stdout = &cmdbuf
+	//cmd.Stderr = os.Stderr
+	err := cmd.Run()
+	if err != nil {
+		return err
+	}
+	scanner := bufio.NewScanner(&cmdbuf)
+	if scanner.Scan() {
+		list := strings.Split(scanner.Text(), " ")
+		if len(list) > 3 {
+			s, err := strconv.ParseFloat(list[3], 64)
+			if err == nil {
+				fmt.Fprintf(os.Stdout, "sensors.temp.air\t%d\t%d\n", int64(s), ut)
+				return nil
+			}
+		}
+	}
+	fmt.Fprintf(os.Stdout, "sensors.temp.air\t%d\t%d\n", 20, ut)
+	return errors.New("気温の取得に失敗")
 }
