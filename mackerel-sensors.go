@@ -47,8 +47,21 @@ type It8686 struct {
 	} `json:"vSOC MOS Temp"`
 }
 
+type CPUTemp struct {
+	Tctl struct {
+		Input float64 `json:"temp1_input"`
+	}
+	Tdie struct {
+		Input float64 `json:"temp2_input"`
+	}
+	Tccd1 struct {
+		Input float64 `json:"temp3_input"`
+	}
+}
+
 type Sensors struct {
-	Sensor It8686 `json:"it8686-isa-0a40"`
+	Sensor  It8686  `json:"it8686-isa-0a40"`
+	K10Temp CPUTemp `json:"k10temp-pci-00c3"`
 }
 
 type Metric struct {
@@ -120,6 +133,18 @@ func graph() error {
 						Label: "CPU Temp",
 					},
 					Metric{
+						Name:  "tctl",
+						Label: "Tctl UEFI CPU Temp",
+					},
+					Metric{
+						Name:  "tdie",
+						Label: "Tdie CPU Temp",
+					},
+					Metric{
+						Name:  "tccd1",
+						Label: "Tccd1 CPU Temp",
+					},
+					Metric{
 						Name:  "pciex16",
 						Label: "PCI-EX16 Temp",
 					},
@@ -167,6 +192,9 @@ func sensor() error {
 
 	fmt.Fprintf(os.Stdout, "sensors.temp.chipset\t%d\t%d\n", int64(ss.Sensor.Chipset_Temp.Input), ut)
 	fmt.Fprintf(os.Stdout, "sensors.temp.cpu\t%d\t%d\n", int64(ss.Sensor.CPU_Temp.Input), ut)
+	fmt.Fprintf(os.Stdout, "sensors.temp.tctl\t%.3f\t%d\n", ss.K10Temp.Tctl.Input, ut)
+	fmt.Fprintf(os.Stdout, "sensors.temp.tdie\t%.3f\t%d\n", ss.K10Temp.Tdie.Input, ut)
+	fmt.Fprintf(os.Stdout, "sensors.temp.tccd1\t%.3f\t%d\n", ss.K10Temp.Tccd1.Input, ut)
 	fmt.Fprintf(os.Stdout, "sensors.temp.pciex16\t%d\t%d\n", int64(ss.Sensor.PCIEX16_Temp.Input), ut)
 	fmt.Fprintf(os.Stdout, "sensors.temp.vrm\t%d\t%d\n", int64(ss.Sensor.VRMMOS_Temp.Input), ut)
 	fmt.Fprintf(os.Stdout, "sensors.temp.vsoc\t%d\t%d\n", int64(ss.Sensor.VSOCMOS_Temp.Input), ut)
