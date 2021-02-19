@@ -14,6 +14,61 @@ import (
 	"time"
 )
 
+type Nct6798 struct {
+	Adapter string
+	Fan1    struct {
+		Input float64 `json:"fan1_input"`
+	} `json:"fan1"`
+	Fan2 struct {
+		Input float64 `json:"fan2_input"`
+	} `json:"fan2"`
+	Fan3 struct {
+		Input float64 `json:"fan3_input"`
+	} `json:"fan3"`
+	Fan4 struct {
+		Input float64 `json:"fan4_input"`
+	} `json:"fan4"`
+	Fan5 struct {
+		Input float64 `json:"fan5_input"`
+	} `json:"fan5"`
+	Fan6 struct {
+		Input float64 `json:"fan6_input"`
+	} `json:"fan6"`
+	Fan7 struct {
+		Input float64 `json:"fan7_input"`
+	} `json:"fan7"`
+	Systin struct {
+		Input float64 `json:"temp1_input"`
+	} `json:"SYSTIN"`
+	Cputin struct {
+		Input float64 `json:"temp2_input"`
+	} `json:"CPUTIN"`
+	Auxtin0 struct {
+		Input float64 `json:"temp3_input"`
+	} `json:"AUXTIN0"`
+	Auxtin1 struct {
+		Input float64 `json:"temp4_input"`
+	} `json:"AUXTIN1"`
+	Auxtin2 struct {
+		Input float64 `json:"temp5_input"`
+	} `json:"AUXTIN2"`
+	Auxtin3 struct {
+		Input float64 `json:"temp6_input"`
+	} `json:"AUXTIN3"`
+	PeciAgent0Calibration struct {
+		Input float64 `json:"temp7_input"`
+	} `json:"PECI Agent 0 Calibration"`
+	PchChipCPUMaxTemp struct {
+		Input float64 `json:"temp8_input"`
+	} `json:"PCH_CHIP_CPU_MAX_TEMP"`
+	PchChipTemp struct {
+		Input float64 `json:"temp9_input"`
+	} `json:"PCH_CHIP_TEMP"`
+	PchCPUTemp struct {
+		Input float64 `json:"temp10_input"`
+	} `json:"PCH_CPU_TEMP"`
+}
+
 type It8686 struct {
 	CPU_Vcore struct {
 		Input float64 `json:"in0_input"`
@@ -60,8 +115,9 @@ type CPUTemp struct {
 }
 
 type Sensors struct {
-	Sensor  It8686  `json:"it8686-isa-0a40"`
-	K10Temp CPUTemp `json:"k10temp-pci-00c3"`
+	Nct6798 *Nct6798 `json:"nct6798-isa-0290"`
+	It8686  *It8686  `json:"it8686-isa-0a40"`
+	K10Temp *CPUTemp `json:"k10temp-pci-00c3"`
 }
 
 type Metric struct {
@@ -111,12 +167,20 @@ func graph() error {
 						Label: "CPU_FAN",
 					},
 					Metric{
+						Name:  "cpuopt",
+						Label: "CPU_OPT_FAN",
+					},
+					Metric{
 						Name:  "sys1",
 						Label: "SYS_FAN1",
 					},
 					Metric{
 						Name:  "sys2",
 						Label: "SYS_FAN2",
+					},
+					Metric{
+						Name:  "sys3",
+						Label: "SYS_FAN3",
 					},
 				},
 			},
@@ -125,8 +189,8 @@ func graph() error {
 				Unit:  "integer",
 				Metrics: []Metric{
 					Metric{
-						Name:  "chipset",
-						Label: "Chipset Temp",
+						Name:  "motherboard",
+						Label: "Motherboard Temp",
 					},
 					Metric{
 						Name:  "cpu",
@@ -145,18 +209,6 @@ func graph() error {
 						Label: "Tccd1 CPU Temp",
 					},
 					Metric{
-						Name:  "pciex16",
-						Label: "PCI-EX16 Temp",
-					},
-					Metric{
-						Name:  "vrm",
-						Label: "VRM MOS Temp",
-					},
-					Metric{
-						Name:  "vsoc",
-						Label: "vSOC MOS Temp",
-					},
-					Metric{
 						Name:  "air",
 						Label: "Air Temp",
 					},
@@ -168,9 +220,8 @@ func graph() error {
 }
 
 func sensor() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-
 	var cmdbuf bytes.Buffer
 	cmd := exec.CommandContext(ctx, "sensors", "-j")
 	cmd.Stdout = &cmdbuf
@@ -186,25 +237,21 @@ func sensor() error {
 		return derr
 	}
 	ut := time.Now().Unix()
-	fmt.Fprintf(os.Stdout, "sensors.fan.cpu\t%d\t%d\n", int64(ss.Sensor.CPU_Fan.Input), ut)
-	fmt.Fprintf(os.Stdout, "sensors.fan.sys1\t%d\t%d\n", int64(ss.Sensor.SYS_Fan1.Input), ut)
-	fmt.Fprintf(os.Stdout, "sensors.fan.sys2\t%d\t%d\n", int64(ss.Sensor.SYS_Fan2.Input), ut)
+	fmt.Fprintf(os.Stdout, "sensors.fan.cpu\t%d\t%d\n", int64(ss.Nct6798.Fan2.Input), ut)
+	fmt.Fprintf(os.Stdout, "sensors.fan.cpuopt\t%d\t%d\n", int64(ss.Nct6798.Fan7.Input), ut)
+	fmt.Fprintf(os.Stdout, "sensors.fan.sys1\t%d\t%d\n", int64(ss.Nct6798.Fan1.Input), ut)
+	fmt.Fprintf(os.Stdout, "sensors.fan.sys2\t%d\t%d\n", int64(ss.Nct6798.Fan3.Input), ut)
+	fmt.Fprintf(os.Stdout, "sensors.fan.sys3\t%d\t%d\n", int64(ss.Nct6798.Fan4.Input), ut)
 
-	fmt.Fprintf(os.Stdout, "sensors.temp.chipset\t%d\t%d\n", int64(ss.Sensor.Chipset_Temp.Input), ut)
-	fmt.Fprintf(os.Stdout, "sensors.temp.cpu\t%d\t%d\n", int64(ss.Sensor.CPU_Temp.Input), ut)
+	fmt.Fprintf(os.Stdout, "sensors.temp.motherboard\t%d\t%d\n", int64(ss.Nct6798.Systin.Input), ut)
+	fmt.Fprintf(os.Stdout, "sensors.temp.cpu\t%d\t%d\n", int64(ss.Nct6798.Cputin.Input), ut)
 	fmt.Fprintf(os.Stdout, "sensors.temp.tctl\t%.3f\t%d\n", ss.K10Temp.Tctl.Input, ut)
 	fmt.Fprintf(os.Stdout, "sensors.temp.tdie\t%.3f\t%d\n", ss.K10Temp.Tdie.Input, ut)
 	fmt.Fprintf(os.Stdout, "sensors.temp.tccd1\t%.3f\t%d\n", ss.K10Temp.Tccd1.Input, ut)
-	fmt.Fprintf(os.Stdout, "sensors.temp.pciex16\t%d\t%d\n", int64(ss.Sensor.PCIEX16_Temp.Input), ut)
-	fmt.Fprintf(os.Stdout, "sensors.temp.vrm\t%d\t%d\n", int64(ss.Sensor.VRMMOS_Temp.Input), ut)
-	fmt.Fprintf(os.Stdout, "sensors.temp.vsoc\t%d\t%d\n", int64(ss.Sensor.VSOCMOS_Temp.Input), ut)
-	return air(ut)
+	return air(ctx, ut)
 }
 
-func air(ut int64) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
+func air(ctx context.Context, ut int64) error {
 	// rootで呼ばないとダメ？
 	var cmdbuf bytes.Buffer
 	cmd := exec.CommandContext(ctx, "/home/tanaton/src/TEMPered/utils/tempered")
