@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -141,74 +143,62 @@ type Meta struct {
 }
 
 func main() {
-	var err error
-	if os.Getenv("MACKEREL_AGENT_PLUGIN_META") == "1" {
-		err = graph()
-	} else {
-		err = sensor()
-	}
+	ctx, stop := signal.NotifyContext(context.Background(),
+		syscall.SIGHUP,
+		syscall.SIGINT,
+		syscall.SIGTERM,
+		syscall.SIGQUIT,
+		os.Interrupt,
+		os.Kill,
+	)
+	defer stop()
+	err := _main(ctx)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func graph() error {
+func _main(ctx context.Context) error {
+	var err error
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	var cmdbuf bytes.Buffer
+	cmd := exec.CommandContext(ctx, "sensors", "-j")
+	cmd.Stdout = &cmdbuf
+	//cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	if err != nil {
+		return err
+	}
+	var ss Sensors
+	err = json.NewDecoder(&cmdbuf).Decode(&ss)
+	if err != nil {
+		return err
+	}
+	if os.Getenv("MACKEREL_AGENT_PLUGIN_META") == "1" {
+		err = graph(ctx, &ss)
+	} else {
+		err = sensor(ctx, &ss)
+	}
+	return err
+}
+
+func graph(ctx context.Context, ss *Sensors) error {
 	fmt.Fprintf(os.Stdout, "# mackerel-agent-plugin\n")
 
 	out := Meta{
 		Graphs: Graphs{
 			Fan: Graph{
-				Label: "Fan",
-				Unit:  "integer",
-				Metrics: []Metric{
-					Metric{
-						Name:  "cpu",
-						Label: "CPU_FAN",
-					},
-					Metric{
-						Name:  "cpuopt",
-						Label: "CPU_OPT_FAN",
-					},
-					Metric{
-						Name:  "sys1",
-						Label: "SYS_FAN1",
-					},
-					Metric{
-						Name:  "sys2",
-						Label: "SYS_FAN2",
-					},
-					Metric{
-						Name:  "sys3",
-						Label: "SYS_FAN3",
-					},
-				},
+				Label:   "Fan",
+				Unit:    "integer",
+				Metrics: []Metric{},
 			},
 			Temp: Graph{
 				Label: "Temp",
 				Unit:  "integer",
 				Metrics: []Metric{
-					Metric{
-						Name:  "motherboard",
-						Label: "Motherboard Temp",
-					},
-					Metric{
-						Name:  "cpu",
-						Label: "CPU Temp",
-					},
-					Metric{
-						Name:  "tctl",
-						Label: "Tctl UEFI CPU Temp",
-					},
-					Metric{
-						Name:  "tdie",
-						Label: "Tdie CPU Temp",
-					},
-					Metric{
-						Name:  "tccd1",
-						Label: "Tccd1 CPU Temp",
-					},
-					Metric{
+					{
 						Name:  "air",
 						Label: "Air Temp",
 					},
@@ -216,38 +206,126 @@ func graph() error {
 			},
 		},
 	}
+
+	if ss.It8686 != nil {
+		out.Graphs.Fan.Metrics = append(out.Graphs.Fan.Metrics, []Metric{
+			{
+				Name:  "cpu",
+				Label: "CPU_FAN",
+			},
+			{
+				Name:  "sys1",
+				Label: "SYS_FAN1",
+			},
+			{
+				Name:  "sys2",
+				Label: "SYS_FAN2",
+			},
+		}...)
+
+		out.Graphs.Temp.Metrics = append(out.Graphs.Temp.Metrics, []Metric{
+			{
+				Name:  "chipset",
+				Label: "Chipset Temp",
+			},
+			{
+				Name:  "cpu",
+				Label: "CPU Temp",
+			},
+			{
+				Name:  "pciex16",
+				Label: "PCI-EX16 Temp",
+			},
+			{
+				Name:  "vrm",
+				Label: "VRM MOS Temp",
+			},
+			{
+				Name:  "vsoc",
+				Label: "vSOC MOS Temp",
+			},
+		}...)
+	}
+	if ss.Nct6798 != nil {
+		out.Graphs.Fan.Metrics = append(out.Graphs.Fan.Metrics, []Metric{
+			{
+				Name:  "cpu",
+				Label: "CPU_FAN",
+			},
+			{
+				Name:  "cpuopt",
+				Label: "CPU_OPT_FAN",
+			},
+			{
+				Name:  "sys1",
+				Label: "SYS_FAN1",
+			},
+			{
+				Name:  "sys2",
+				Label: "SYS_FAN2",
+			},
+			{
+				Name:  "sys3",
+				Label: "SYS_FAN3",
+			},
+		}...)
+
+		out.Graphs.Temp.Metrics = append(out.Graphs.Temp.Metrics, []Metric{
+			{
+				Name:  "motherboard",
+				Label: "Motherboard Temp",
+			},
+			{
+				Name:  "cpu",
+				Label: "CPU Temp",
+			},
+		}...)
+	}
+	if ss.K10Temp != nil {
+		out.Graphs.Temp.Metrics = append(out.Graphs.Temp.Metrics, []Metric{
+			{
+				Name:  "tctl",
+				Label: "Tctl UEFI CPU Temp",
+			},
+			{
+				Name:  "tdie",
+				Label: "Tdie CPU Temp",
+			},
+			{
+				Name:  "tccd1",
+				Label: "Tccd1 CPU Temp",
+			},
+		}...)
+	}
 	return json.NewEncoder(os.Stdout).Encode(&out)
 }
 
-func sensor() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	var cmdbuf bytes.Buffer
-	cmd := exec.CommandContext(ctx, "sensors", "-j")
-	cmd.Stdout = &cmdbuf
-	//cmd.Stderr = os.Stderr
-	err := cmd.Run()
-	if err != nil {
-		return err
-	}
-
-	var ss Sensors
-	derr := json.NewDecoder(&cmdbuf).Decode(&ss)
-	if derr != nil {
-		return derr
-	}
+func sensor(ctx context.Context, ss *Sensors) error {
 	ut := time.Now().Unix()
-	fmt.Fprintf(os.Stdout, "sensors.fan.cpu\t%d\t%d\n", int64(ss.Nct6798.Fan2.Input), ut)
-	fmt.Fprintf(os.Stdout, "sensors.fan.cpuopt\t%d\t%d\n", int64(ss.Nct6798.Fan7.Input), ut)
-	fmt.Fprintf(os.Stdout, "sensors.fan.sys1\t%d\t%d\n", int64(ss.Nct6798.Fan1.Input), ut)
-	fmt.Fprintf(os.Stdout, "sensors.fan.sys2\t%d\t%d\n", int64(ss.Nct6798.Fan3.Input), ut)
-	fmt.Fprintf(os.Stdout, "sensors.fan.sys3\t%d\t%d\n", int64(ss.Nct6798.Fan4.Input), ut)
-
-	fmt.Fprintf(os.Stdout, "sensors.temp.motherboard\t%d\t%d\n", int64(ss.Nct6798.Systin.Input), ut)
-	fmt.Fprintf(os.Stdout, "sensors.temp.cpu\t%d\t%d\n", int64(ss.Nct6798.Cputin.Input), ut)
-	fmt.Fprintf(os.Stdout, "sensors.temp.tctl\t%.3f\t%d\n", ss.K10Temp.Tctl.Input, ut)
-	fmt.Fprintf(os.Stdout, "sensors.temp.tdie\t%.3f\t%d\n", ss.K10Temp.Tdie.Input, ut)
-	fmt.Fprintf(os.Stdout, "sensors.temp.tccd1\t%.3f\t%d\n", ss.K10Temp.Tccd1.Input, ut)
+	if ss.It8686 != nil {
+		fmt.Fprintf(os.Stdout, "sensors.fan.cpu\t%d\t%d\n", int64(ss.It8686.CPU_Fan.Input), ut)
+		fmt.Fprintf(os.Stdout, "sensors.fan.sys1\t%d\t%d\n", int64(ss.It8686.SYS_Fan1.Input), ut)
+		fmt.Fprintf(os.Stdout, "sensors.fan.sys2\t%d\t%d\n", int64(ss.It8686.SYS_Fan2.Input), ut)
+		fmt.Fprintf(os.Stdout, "sensors.temp.chipset\t%d\t%d\n", int64(ss.It8686.Chipset_Temp.Input), ut)
+		fmt.Fprintf(os.Stdout, "sensors.temp.cpu\t%d\t%d\n", int64(ss.It8686.CPU_Temp.Input), ut)
+		fmt.Fprintf(os.Stdout, "sensors.temp.pciex16\t%d\t%d\n", int64(ss.It8686.PCIEX16_Temp.Input), ut)
+		fmt.Fprintf(os.Stdout, "sensors.temp.vrm\t%d\t%d\n", int64(ss.It8686.VRMMOS_Temp.Input), ut)
+		fmt.Fprintf(os.Stdout, "sensors.temp.vsoc\t%d\t%d\n", int64(ss.It8686.VSOCMOS_Temp.Input), ut)
+	}
+	if ss.Nct6798 != nil {
+		fmt.Fprintf(os.Stdout, "sensors.fan.cpu\t%d\t%d\n", int64(ss.Nct6798.Fan2.Input), ut)
+		fmt.Fprintf(os.Stdout, "sensors.fan.cpuopt\t%d\t%d\n", int64(ss.Nct6798.Fan7.Input), ut)
+		fmt.Fprintf(os.Stdout, "sensors.fan.sys1\t%d\t%d\n", int64(ss.Nct6798.Fan1.Input), ut)
+		fmt.Fprintf(os.Stdout, "sensors.fan.sys2\t%d\t%d\n", int64(ss.Nct6798.Fan3.Input), ut)
+		fmt.Fprintf(os.Stdout, "sensors.fan.sys3\t%d\t%d\n", int64(ss.Nct6798.Fan4.Input), ut)
+		fmt.Fprintf(os.Stdout, "sensors.temp.motherboard\t%d\t%d\n", int64(ss.Nct6798.Systin.Input), ut)
+		fmt.Fprintf(os.Stdout, "sensors.temp.cpu\t%d\t%d\n", int64(ss.Nct6798.Cputin.Input), ut)
+	}
+	if ss.K10Temp != nil {
+		fmt.Fprintf(os.Stdout, "sensors.temp.tctl\t%.3f\t%d\n", ss.K10Temp.Tctl.Input, ut)
+		fmt.Fprintf(os.Stdout, "sensors.temp.tdie\t%.3f\t%d\n", ss.K10Temp.Tdie.Input, ut)
+		fmt.Fprintf(os.Stdout, "sensors.temp.tccd1\t%.3f\t%d\n", ss.K10Temp.Tccd1.Input, ut)
+	}
 	return air(ctx, ut)
 }
 
@@ -267,7 +345,7 @@ func air(ctx context.Context, ut int64) error {
 		if len(list) > 3 {
 			s, err := strconv.ParseFloat(list[3], 64)
 			if err == nil {
-				fmt.Fprintf(os.Stdout, "sensors.temp.air\t%d\t%d\n", int64(s), ut)
+				fmt.Fprintf(os.Stdout, "sensors.temp.air\t%.2f\t%d\n", s, ut)
 				return nil
 			}
 		}
